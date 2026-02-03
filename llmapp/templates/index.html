@@ -1,0 +1,201 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>LearnBuddy</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 980px; margin: 20px auto; }
+    pre { background: #f5f5f5; padding: 12px; border-radius: 8px; overflow:auto; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 14px; margin: 12px 0; }
+    label { display:block; font-weight: 600; margin: 8px 0 4px; }
+    input, select, textarea, button {
+      font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #ccc;
+    }
+    textarea { width: 100%; min-height: 90px; }
+    button { cursor: pointer; }
+    .muted { color: #666; font-size: 0.95em; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#eef; margin-left:8px; font-size: 0.9em;}
+    .ok { background:#e8fff0; }
+    .bad { background:#ffecec; }
+    .split { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  </style>
+</head>
+
+<body>
+  <h2>LearnBuddy server is running ✅</h2>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Model status</h3>
+    <div class="row">
+      <div><b>Device:</b> <span class="pill">{{ device }}</span></div>
+      <div class="muted">If you see <b>cuda:0</b> and adapters listed, loading worked.</div>
+    </div>
+
+    <h3>Loaded adapters</h3>
+    <pre id="adaptersPre">{% for a in adapters %}{{ a }}
+{% empty %}No adapters found in ./adapters{% endfor %}</pre>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Test adapters (MCQ + Solve)</h3>
+
+    <div class="row">
+      <div style="min-width:220px; flex:1;">
+        <label for="endpoint">Endpoint</label>
+        <select id="endpoint">
+          <option value="mcq">/api/mcq</option>
+          <option value="solve">/api/solve</option>
+        </select>
+      </div>
+
+      <div style="min-width:260px; flex:2;">
+        <label for="chapter">Chapter name (used to pick adapter)</label>
+        <input id="chapter" placeholder="e.g., Sequence and Series" value="Sequence and Series" style="width:100%;" />
+        <div class="muted">Make sure your router maps this chapter to the correct adapter.</div>
+      </div>
+
+      <div style="min-width:160px;">
+        <label for="difficulty">Difficulty (MCQ only)</label>
+        <select id="difficulty">
+          <option value="1">1 </option>
+          <option value="2" selected>2 </option>
+          <option value="3">3 </option>
+          <option value="4">4 </option>
+          <option value="5">5 </option>
+        </select>
+      </div>
+    </div>
+
+    <label for="question">Question (Solve only)</label>
+    <textarea id="question" placeholder="Enter a question to solve...">Find the sum of first 10 terms of an arithmetic series with first term 3 and common difference 5.</textarea>
+
+    <div class="row" style="margin-top:10px;">
+      <button id="runBtn">Run</button>
+      <button id="clearBtn" type="button">Clear output</button>
+      <div id="status" class="pill muted">Idle</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Response</h3>
+    <div class="split">
+      <div>
+        <h4>Parsed result</h4>
+        <pre id="parsedOut">(nothing yet)</pre>
+      </div>
+      <div>
+        <h4>Raw model output</h4>
+        <pre id="rawOut">(nothing yet)</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const endpointEl = document.getElementById("endpoint");
+    const chapterEl = document.getElementById("chapter");
+    const difficultyEl = document.getElementById("difficulty");
+    const questionEl = document.getElementById("question");
+    const runBtn = document.getElementById("runBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const statusEl = document.getElementById("status");
+    const parsedOut = document.getElementById("parsedOut");
+    const rawOut = document.getElementById("rawOut");
+
+    function setStatus(text, ok=null) {
+      statusEl.textContent = text;
+      statusEl.classList.remove("ok", "bad");
+      if (ok === true) statusEl.classList.add("ok");
+      if (ok === false) statusEl.classList.add("bad");
+    }
+
+    function pretty(obj) {
+      return JSON.stringify(obj, null, 2);
+    }
+
+    function clearOutput() {
+      parsedOut.textContent = "(nothing yet)";
+      rawOut.textContent = "(nothing yet)";
+      setStatus("Idle");
+    }
+
+    function currentPayload() {
+      const chapter = chapterEl.value.trim();
+      const endpoint = endpointEl.value;
+
+      if (endpoint === "mcq") {
+        return {
+          url: "/api/mcq",
+          body: {
+            chapter: chapter,
+            difficulty: parseInt(difficultyEl.value, 10)
+          }
+        };
+      } else {
+        return {
+          url: "/api/solve",
+          body: {
+            chapter: chapter,
+            question: questionEl.value.trim()
+          }
+        };
+      }
+    }
+
+    function refreshUI() {
+      const ep = endpointEl.value;
+      const isMcq = ep === "mcq";
+      difficultyEl.disabled = !isMcq;
+      questionEl.disabled = isMcq;
+      questionEl.style.opacity = isMcq ? "0.5" : "1";
+      difficultyEl.style.opacity = isMcq ? "1" : "0.5";
+    }
+
+    endpointEl.addEventListener("change", refreshUI);
+    refreshUI();
+
+    clearBtn.addEventListener("click", clearOutput);
+
+    runBtn.addEventListener("click", async () => {
+      const { url, body } = currentPayload();
+
+      if (!body.chapter) {
+        setStatus("Chapter is required", false);
+        return;
+      }
+      if (url === "/api/solve" && !body.question) {
+        setStatus("Question is required for solve", false);
+        return;
+      }
+
+      setStatus("Calling API…");
+      parsedOut.textContent = "";
+      rawOut.textContent = "";
+
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        const data = await res.json();
+
+        rawOut.textContent = data.raw ?? "(no raw field returned)";
+
+        parsedOut.textContent = pretty(data);
+
+        if (res.ok && !data.error) {
+          setStatus(`OK — adapter: ${data.adapter}`, true);
+        } else {
+          setStatus(`Error — ${data.error || ("HTTP " + res.status)}`, false);
+        }
+      } catch (e) {
+        setStatus("Request failed: " + e, false);
+        parsedOut.textContent = String(e);
+      }
+    });
+  </script>
+</body>
+</html>

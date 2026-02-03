@@ -1,0 +1,6 @@
+Django>=5.0
+torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+transformers
+accelerate
+bitsandbytes
+peft
