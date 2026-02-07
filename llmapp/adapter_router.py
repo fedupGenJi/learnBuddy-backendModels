@@ -14,6 +14,8 @@ def pick_adapter(chapter: str) -> str:
         preferred = "arithmetic_v1"
     elif "probability" in key:
         preferred = "probability_v1"
+    elif "algebraic" in key or "algebra" in key or "equation" in key:
+        preferred = "algebraic_fractions_v1"
     else:
         preferred = "arithmetic_v1"
 

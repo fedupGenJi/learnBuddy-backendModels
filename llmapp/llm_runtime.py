@@ -2,6 +2,7 @@ import os
 import json
 import threading
 from typing import Dict, Tuple, Any, Optional
+from peft import PeftModel
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
@@ -96,32 +97,39 @@ def _generate_text(prompt: str, max_new_tokens: int, temperature: float) -> str:
     global tokenizer, model
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
+    do_sample = temperature > 0
+
     with torch.no_grad():
         out = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-            top_p=0.9,
-        )
-    return tokenizer.decode(out[0], skip_special_tokens=True)
 
+            do_sample=do_sample,
+            temperature=temperature if do_sample else None,
+
+            top_p=0.9 if do_sample else 1.0,
+
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    new_tokens = out[0][inputs["input_ids"].shape[-1]:]
+
+    return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+current_adapter = None
 
 def generate_with_adapter(adapter_name: str, prompt: str,
-                          max_new_tokens: int = 450,
+                          max_new_tokens: int = 50,
                           temperature: float = 0.3) -> str:
-    """
-    ✅ This is the safe entrypoint used by views:
-    - It locks
-    - sets adapter
-    - generates
-    - unlocks
-    """
-    global model, loaded_adapters
+    global model, loaded_adapters, current_adapter
 
     if adapter_name not in loaded_adapters:
         raise ValueError(f"Adapter '{adapter_name}' is not loaded. Loaded: {list(loaded_adapters.keys())}")
 
     with adapter_lock:
         model.set_adapter(adapter_name)
+        current_adapter = adapter_name
+        print(f"[generate_with_adapter] Using adapter: {current_adapter}")
         return _generate_text(prompt, max_new_tokens=max_new_tokens, temperature=temperature)

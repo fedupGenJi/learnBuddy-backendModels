@@ -6,7 +6,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .llm_runtime import load_base_and_adapters, loaded_adapters
 from .services import generate_mcq as generate_mcq_service
 from .services import solve as solve_service
-
+from .routed_services import solve_routed
 
 def index(request):
     load_base_and_adapters()
@@ -58,5 +58,24 @@ def api_solve(request):
         return JsonResponse({"error": "chapter and question are required"}, status=400)
 
     result = solve_service(chapter, question)
+    status = 200 if result["error"] is None else 502
+    return JsonResponse(result, status=status)
+
+@csrf_exempt
+def api_solve_routed(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    question = payload.get("question")
+
+    if not question:
+        return JsonResponse({"error": "question is required"}, status=400)
+
+    result = solve_routed(question)
     status = 200 if result["error"] is None else 502
     return JsonResponse(result, status=status)
